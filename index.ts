@@ -4,8 +4,8 @@
  * Plays a notification sound when the agent finishes its full response
  * (all tool calls complete, waiting for user input).
  *
- * At session start, one random sound is picked from a pool of 5 so that
- * concurrent Pi sessions can be distinguished by ear.
+ * At session start, sounds are assigned round-robin from a pool of 4,
+ * so that concurrent Pi sessions each get a distinct, predictable sound.
  *
  * ## How it works
  *
@@ -33,7 +33,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 // ---------------------------------------------------------------------------
@@ -53,13 +53,37 @@ const SOUND_FILES = [
 	"bell.oga",                // 🔔 classic bell
 	"message-new-instant.oga", // 💬 new message
 	"dialog-information.oga",  // ℹ️ info dialog
-	"window-attention.oga",    // 👁️ window attention
 ] as const;
 
-/** Pick a random sound and return its absolute path. */
-function pickRandomSound(): string {
-	const index = Math.floor(Math.random() * SOUND_FILES.length);
-	return join(SOUND_DIR, SOUND_FILES[index]);
+const COUNTER_FILE = join(EXT_DIR, ".sound-counter");
+
+/**
+ * Atomically allocate the next sound index using a shared counter file.
+ * Sessions grab IDs round-robin: 0, 1, 2, 3, 0, 1, ...
+ * Uses flock for mutual exclusion so concurrent sessions don't collide.
+ */
+function acquireSoundIndex(): number {
+	const lockFile = "/tmp/pi-notify-sound.lock";
+
+	try {
+		const result = execFileSync("bash", ["-c", `
+			exec 200>"${lockFile}"
+			flock 200
+			if [ -f "${COUNTER_FILE}" ]; then
+				idx=$(cat "${COUNTER_FILE}")
+			else
+				idx=0
+			fi
+			echo $((idx + 1)) > "${COUNTER_FILE}"
+			echo $idx
+		`], { encoding: "utf8", timeout: 5000 });
+
+		return parseInt(result.trim());
+	} catch (e) {
+		// Fallback to random if locking fails
+		console.warn("[notification] Failed to acquire sound index, falling back to random", e);
+		return Math.floor(Math.random() * SOUND_FILES.length);
+	}
 }
 
 /** Extract just the filename from a full path. */
@@ -90,6 +114,12 @@ function ensureFifo(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Session sound (assigned round-robin at session_start)
+// ---------------------------------------------------------------------------
+
+let sessionSound: string;
+
+// ---------------------------------------------------------------------------
 // Core playback
 // ---------------------------------------------------------------------------
 
@@ -100,10 +130,10 @@ function ensureFifo(): void {
  * Falls back to a terminal bell if the daemon isn't running.
  *
  * @param filePath Absolute path to an audio file (.oga, .wav, etc.).
- *                 If omitted, a random sound from the pool is used.
+ *                 If omitted, the session's assigned sound is used.
  */
 export function playNotificationSound(filePath?: string): void {
-	const sound = filePath ?? pickRandomSound();
+	const sound = filePath ?? sessionSound;
 
 	if (!existsSync(sound)) {
 		console.warn(`[notification] Sound file not found: ${sound}`);
@@ -138,13 +168,10 @@ function fallbackBell(): void {
 // ---------------------------------------------------------------------------
 
 export default function (pi: ExtensionAPI) {
-	/** The sound chosen for this particular session. */
-	let sessionSound: string;
-
-	// Pick a random sound once per session so each Pi window has its own identity.
+	// Allocate the next sound round-robin so each Pi window gets a distinct identity.
 	pi.on("session_start", async () => {
-		sessionSound = pickRandomSound();
-		console.log(`[notification] Session sound: ${soundLabel(sessionSound)}`);
+		const idx = acquireSoundIndex() % SOUND_FILES.length;
+		sessionSound = join(SOUND_DIR, SOUND_FILES[idx]);
 	});
 
 	// Fire when the agent is fully done — all turns, all tool calls,

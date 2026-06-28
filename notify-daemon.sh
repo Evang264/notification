@@ -68,12 +68,12 @@ while true; do
     continue
   fi
 
-  # Play the sound at 2x volume.
+  # Play the sound at original volume.
   # pw-play and paplay both accept --volume (linear multiplier).
   # For other players, fall back to no volume flag.
   case "$PLAYER" in
     pw-play|paplay)
-      "$PLAYER" --volume=2.0 "$sound_file" &>/dev/null &
+      "$PLAYER" --volume=1.0 "$sound_file" &>/dev/null &
       ;;
     *)
       "$PLAYER" "$sound_file" &>/dev/null &

@@ -1,2 +1,5 @@
 # FIFO created at runtime
 .notify-fifo
+
+# Round-robin counter (runtime state)
+.sound-counter

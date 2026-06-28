@@ -2,7 +2,7 @@
 
 Plays a notification sound when the agent finishes its response (all tool calls complete, waiting for user input).
 
-Each Pi session picks a random sound from a pool of 5, so you can tell concurrent sessions apart by ear.
+Each Pi session is assigned a sound round-robin from a pool of 4, so concurrent sessions get distinct, predictable sounds.
 
 ## Sounds
 
@@ -12,7 +12,8 @@ Each Pi session picks a random sound from a pool of 5, so you can tell concurren
 | 🔔 Classic bell | `bell.oga` |
 | 💬 New message | `message-new-instant.oga` |
 | ℹ️ Info dialog | `dialog-information.oga` |
-| 👁️ Window attention | `window-attention.oga` |
+
+Assigned round-robin: the 1st session gets task complete, 2nd gets classic bell, 3rd gets new message, 4th gets info dialog, 5th wraps back to task complete, and so on.
 
 All sourced from `/usr/share/sounds/freedesktop/stereo/`.
 
@@ -79,7 +80,7 @@ The extension exports a reusable function:
 ```typescript
 import { playNotificationSound } from "./index.ts";
 
-// Play a random sound from the pool
+// Play the session's assigned sound
 playNotificationSound();
 
 // Play a specific sound
